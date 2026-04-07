@@ -11,40 +11,30 @@
 // @grant        none
 // ==/UserScript==
 
-// ─── Configuration ────────────────────────────────────────────────────────────
 const CONFIG = {
   telegram: {
-    token: "",          // Your Telegram bot token (see README)
-    chatId: "",         // Your Telegram chat ID (see README)
+    token: "",
+    chatId: "",
   },
   credentials: {
-    email: "",          // Your portal email
-    password: "",       // Your portal password
+    email: "",
+    password: "",
   },
   timing: {
-    loginDelay:   { min: 2000, max: 3000 },
-    pageDelay:    { min: 1000, max: 2000 },
+    loginDelay: { min: 2000, max: 3000 },
+    pageDelay: { min: 1000, max: 2000 },
     calendarWait: { min: 2000, max: 3000 },
-    reloadWait:   { min: 15000, max: 30000 },
+    timeWait: { min: 1500, max: 2500 },
+    reloadWait: { min: 15000, max: 30000 },
     pollInterval: 500,
     monthsToCheck: 4,
   },
 };
 
-// ─── Utilities ────────────────────────────────────────────────────────────────
-
-/**
- * Returns a random integer between min and max (inclusive).
- * Used to add human-like delays and avoid detection.
- */
 function randomDelay(min, max) {
   return Math.floor(Math.random() * (max - min + 1) + min);
 }
 
-/**
- * Waits for a DOM element matching `selector` to appear,
- * then calls `callback(element)`. Stops polling after `timeout` ms.
- */
 function waitForElement(selector, callback, timeout = 10000) {
   const start = Date.now();
   const interval = setInterval(() => {
@@ -59,9 +49,6 @@ function waitForElement(selector, callback, timeout = 10000) {
   }, CONFIG.timing.pollInterval);
 }
 
-/**
- * Sends a message to the configured Telegram chat.
- */
 async function sendTelegramMessage(text) {
   const { token, chatId } = CONFIG.telegram;
   if (!token || !chatId) {
@@ -80,24 +67,17 @@ async function sendTelegramMessage(text) {
   }
 }
 
-// ─── Page Handlers ────────────────────────────────────────────────────────────
-
-/**
- * Handles the login page:
- * - Notifies via Telegram that the session expired
- * - Fills in credentials and submits the form
- */
 function handleLoginPage() {
-  sendTelegramMessage("⚠️ Session expired — attempting to log in again.");
+  sendTelegramMessage("Session expired - attempting to log in again.");
 
   window.addEventListener("load", () => {
     waitForElement("#user_email", () => {
-      const email    = document.querySelector("#user_email");
+      const email = document.querySelector("#user_email");
       const password = document.querySelector("#user_password");
       const checkbox = document.querySelector("#policy_confirmed");
       const btnLogin = document.querySelector("input[value='Iniciar sesión']");
 
-      email.value    = CONFIG.credentials.email;
+      email.value = CONFIG.credentials.email;
       password.value = CONFIG.credentials.password;
 
       if (checkbox && !checkbox.checked) checkbox.click();
@@ -109,10 +89,6 @@ function handleLoginPage() {
   });
 }
 
-/**
- * Handles the groups/account selection page:
- * - Clicks the "Continue" button to proceed
- */
 function handleGroupsPage() {
   window.addEventListener("load", () => {
     waitForElement("a.button.primary.small", (btn) => {
@@ -124,22 +100,17 @@ function handleGroupsPage() {
   });
 }
 
-/**
- * Handles the actions page:
- * - Expands the "Reschedule appointment" accordion
- * - Clicks the reschedule button once it's visible
- */
 function handleContinueActionsPage() {
   setTimeout(() => {
     const allAccordions = () => [...document.querySelectorAll("a.accordion-title")];
 
-    const rescheduleLink = allAccordions().find(el =>
+    const rescheduleLink = allAccordions().find((el) =>
       el.innerText.trim().includes("Reprogramar cita")
     );
     if (rescheduleLink) rescheduleLink.click();
 
     waitForElement("a.accordion-title", () => {
-      const reschedule = allAccordions().find(el =>
+      const reschedule = allAccordions().find((el) =>
         el.innerText.trim().includes("Reprogramar cita")
       );
 
@@ -155,21 +126,16 @@ function handleContinueActionsPage() {
   }, 3000);
 }
 
-/**
- * Handles the appointment confirmation page:
- * - Checks the confirmation checkbox
- * - Clicks the Continue button
- */
 function handleAppointmentPage() {
   window.addEventListener("load", () => {
     waitForElement("#confirmed_limit_message", () => {
       const checkbox = document.querySelector("#confirmed_limit_message");
-      const buttons  = [...document.querySelectorAll("input.button.primary")];
+      const buttons = [...document.querySelectorAll("input.button.primary")];
 
       if (checkbox && !checkbox.checked) checkbox.click();
 
       setTimeout(() => {
-        const continueBtn = buttons.find(el =>
+        const continueBtn = buttons.find((el) =>
           /Continue|Continuar/i.test(el.value.trim())
         );
         if (continueBtn) continueBtn.click();
@@ -178,82 +144,247 @@ function handleAppointmentPage() {
   });
 }
 
-// ─── Calendar Scanner ─────────────────────────────────────────────────────────
-
-/**
- * Extracts available dates from the datepicker and formats them as DD/MM/YYYY strings.
- */
-function getAvailableDates() {
+// Reads whichever jQuery UI datepicker is currently open and returns
+// clickable day cells plus a formatted label for logging/alerts.
+function getAvailableDays() {
   const availableDays = document.querySelectorAll(
     "#ui-datepicker-div td:not(.ui-datepicker-unselectable):not(.ui-state-disabled):not(.ui-datepicker-other-month)"
   );
 
-  return [...availableDays].map(td => {
-    const month = td.dataset.month ? parseInt(td.dataset.month) + 1 : "?";
-    const year  = td.dataset.year  || "?";
-    const day   = td.querySelector("a")?.innerText || "?";
-    return `${day}/${month}/${year}`;
+  return [...availableDays].map((td) => {
+    const month = td.dataset.month ? parseInt(td.dataset.month, 10) + 1 : "?";
+    const year = td.dataset.year || "?";
+    const day = td.querySelector("a")?.innerText || "?";
+    return {
+      cell: td,
+      label: `${day}/${month}/${year}`,
+    };
   });
 }
 
-/**
- * Main calendar scanning loop:
- * - Opens the datepicker
- * - Iterates over the next N months looking for available slots
- * - If found, sends a Telegram alert
- * - If not found, reloads the page after a random delay
- */
-function startCalendarScan() {
-  console.log("[Bot] Waiting for date input...");
+// Waits for a time dropdown to refresh after a date click, then selects
+// the first real time option (skipping the blank placeholder option).
+function selectFirstAvailableTime(selectSelector, previousValues = "", timeout = 10000) {
+  const start = Date.now();
 
-  waitForElement("#appointments_consulate_appointment_date", (input) => {
-    console.log("[Bot] Date input found, opening calendar...");
+  function trySelectTime(resolve) {
+    const select = document.querySelector(selectSelector);
 
-    setTimeout(() => input.click(), 2000);
-
-    let monthsChecked = 0;
-
-    function checkCurrentMonth() {
-      setTimeout(async () => {
-        const availableDates = getAvailableDates();
-
-        if (availableDates.length > 0) {
-          const dateList = availableDates.join(", ");
-          console.log(`[Bot] ✅ Available dates found: ${dateList}`);
-          await sendTelegramMessage(`✅ Appointment slots available!\n📅 Dates: ${dateList}`);
-          return; // Stop scanning — user needs to act
-        }
-
-        monthsChecked++;
-        console.log(`[Bot] Month ${monthsChecked} checked — no appointments.`);
-
-        if (monthsChecked < CONFIG.timing.monthsToCheck) {
-          const nextBtn = document.querySelector(".ui-datepicker-next");
-          if (nextBtn) {
-            nextBtn.click();
-            checkCurrentMonth();
-          } else {
-            console.log("[Bot] Next button not found — reopening calendar.");
-            input.click();
-            checkCurrentMonth();
-          }
-        } else {
-          monthsChecked = 0;
-          const delay = randomDelay(
-            CONFIG.timing.reloadWait.min,
-            CONFIG.timing.reloadWait.max
-          );
-          console.log(`[Bot] All months checked. Reloading in ${delay / 1000}s...`);
-          setTimeout(() => location.reload(), delay);
-        }
-      }, randomDelay(CONFIG.timing.calendarWait.min, CONFIG.timing.calendarWait.max));
+    if (!select) {
+      if (Date.now() - start <= timeout) {
+        setTimeout(() => trySelectTime(resolve), CONFIG.timing.pollInterval);
+      } else {
+        console.warn(`[Bot] Timeout waiting for time select: ${selectSelector}`);
+        resolve(null);
+      }
+      return;
     }
 
-    checkCurrentMonth();
+    const currentValues = [...select.options].map((option) => option.value).join("|");
+    const firstAvailableOption = [...select.options].find(
+      (option) => option.value.trim() !== "" && !option.disabled
+    );
+
+    if (!firstAvailableOption || currentValues === previousValues) {
+      if (Date.now() - start <= timeout) {
+        setTimeout(() => trySelectTime(resolve), CONFIG.timing.pollInterval);
+      } else {
+        console.log("[Bot] No available times found for the selected date.");
+        resolve(null);
+      }
+      return;
+    }
+
+    firstAvailableOption.selected = true;
+    select.value = firstAvailableOption.value;
+    select.dispatchEvent(new Event("input", { bubbles: true }));
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    const selectedTime = firstAvailableOption.text.trim();
+    console.log(`[Bot] Selected first available time: ${selectedTime}`);
+    resolve(selectedTime);
+  }
+
+  return new Promise((resolve) => {
+    trySelectTime(resolve);
   });
 }
 
-// ─── Router ───────────────────────────────────────────────────────────────────
+// Tries each currently visible date until one produces an available time.
+async function findDateWithAvailableTime(timeSelector) {
+  const availableDays = getAvailableDays();
+
+  for (const { cell, label } of availableDays) {
+    const clickableDay = cell.querySelector("a") || cell;
+    const timeSelect = document.querySelector(timeSelector);
+    const previousValues = timeSelect
+      ? [...timeSelect.options].map((option) => option.value).join("|")
+      : "";
+
+    clickableDay.click();
+    console.log(`[Bot] Testing date: ${label}`);
+
+    const firstTime = await selectFirstAvailableTime(timeSelector, previousValues);
+    if (firstTime) {
+      return { date: label, time: firstTime };
+    }
+  }
+
+  return null;
+}
+
+// Scans one appointment fieldset by opening its calendar, checking up to the
+// configured number of months, and returning the first date/time pair found.
+function scanAppointmentField(dateSelector, timeSelector, appointmentLabel) {
+  return new Promise((resolve) => {
+    waitForElement(dateSelector, (input) => {
+      console.log(`[Bot] ${appointmentLabel} date input found, opening calendar...`);
+
+      setTimeout(() => input.click(), 2000);
+
+      let monthsChecked = 0;
+
+      function checkCurrentMonth() {
+        setTimeout(async () => {
+          const availableDays = getAvailableDays();
+
+          if (availableDays.length > 0) {
+            const availableLabels = availableDays.map(({ label }) => label).join(", ");
+            console.log(`[Bot] ${appointmentLabel} dates found: ${availableLabels}`);
+
+            const appointment = await findDateWithAvailableTime(timeSelector);
+            if (appointment) {
+              resolve(appointment);
+              return;
+            }
+
+            console.log(`[Bot] ${appointmentLabel} dates found, but none had time slots.`);
+          }
+
+          monthsChecked++;
+          console.log(`[Bot] ${appointmentLabel} month ${monthsChecked} checked - no appointments.`);
+
+          if (monthsChecked < CONFIG.timing.monthsToCheck) {
+            const nextBtn = document.querySelector(".ui-datepicker-next");
+            if (nextBtn) {
+              nextBtn.click();
+              checkCurrentMonth();
+            } else {
+              console.log(`[Bot] Next button not found for ${appointmentLabel} - reopening calendar.`);
+              input.click();
+              checkCurrentMonth();
+            }
+          } else {
+            resolve(null);
+          }
+        }, randomDelay(CONFIG.timing.calendarWait.min, CONFIG.timing.calendarWait.max));
+      }
+
+      checkCurrentMonth();
+    });
+  });
+}
+
+// Clicks the final submit button once both appointment fieldsets are filled.
+function submitReschedule() {
+  const submitButton = document.querySelector("#appointments_submit");
+
+  if (!submitButton) {
+    console.warn("[Bot] Reschedule button not found.");
+    return false;
+  }
+
+  submitButton.click();
+  console.log("[Bot] Reschedule button clicked.");
+  return true;
+}
+
+// Watches for a success/confirmation state after submitting the reschedule.
+function waitForRescheduleConfirmation(timeout = 15000) {
+  const start = Date.now();
+
+  return new Promise((resolve) => {
+    const interval = setInterval(() => {
+      const bodyText = document.body?.innerText || "";
+      const successMessage = document.querySelector(".notice, .alert, .flash, .flash-message");
+      const successDetected =
+        /reprogramad|reprogramada|reprogramado|success|confirmad|confirmada/i.test(bodyText) ||
+        (!!successMessage && /reprogramad|success|confirmad/i.test(successMessage.innerText));
+
+      if (successDetected) {
+        clearInterval(interval);
+        resolve(true);
+        return;
+      }
+
+      if (Date.now() - start > timeout) {
+        clearInterval(interval);
+        resolve(false);
+      }
+    }, CONFIG.timing.pollInterval);
+  });
+}
+
+// Main scheduling flow:
+// 1. Find/select the consular appointment.
+// 2. Find/select the ASC appointment.
+// 3. Submit the reschedule and notify Telegram.
+function startCalendarScan() {
+  console.log("[Bot] Waiting for appointment inputs...");
+
+  waitForElement("#appointments_consulate_appointment_date", async () => {
+    const consularAppointment = await scanAppointmentField(
+      "#appointments_consulate_appointment_date",
+      "#appointments_consulate_appointment_time",
+      "Consular"
+    );
+
+    if (!consularAppointment) {
+      const delay = randomDelay(
+        CONFIG.timing.reloadWait.min,
+        CONFIG.timing.reloadWait.max
+      );
+      console.log(`[Bot] No consular appointments found. Reloading in ${delay / 1000}s...`);
+      setTimeout(() => location.reload(), delay);
+      return;
+    }
+
+    console.log(
+      `[Bot] Consular appointment selected: ${consularAppointment.date} at ${consularAppointment.time}`
+    );
+
+    const ascAppointment = await scanAppointmentField(
+      "#appointments_asc_appointment_date",
+      "#appointments_asc_appointment_time",
+      "ASC"
+    );
+
+    if (!ascAppointment) {
+      console.log("[Bot] ASC appointment not found after selecting consular appointment.");
+      return;
+    }
+
+    console.log(`[Bot] ASC appointment selected: ${ascAppointment.date} at ${ascAppointment.time}`);
+    await sendTelegramMessage(
+      `Appointments selected. Consular: ${consularAppointment.date} at ${consularAppointment.time}. ASC: ${ascAppointment.date} at ${ascAppointment.time}. Submitting reschedule now.`
+    );
+
+    setTimeout(async () => {
+      const submitted = submitReschedule();
+      if (!submitted) {
+        return;
+      }
+
+      const confirmed = await waitForRescheduleConfirmation();
+      if (confirmed) {
+        await sendTelegramMessage(
+          `Reschedule submitted successfully. Consular: ${consularAppointment.date} at ${consularAppointment.time}. ASC: ${ascAppointment.date} at ${ascAppointment.time}.`
+        );
+      } else {
+        console.log("[Bot] Reschedule confirmation was not detected.");
+      }
+    }, 1000);
+  });
+}
 
 const url = window.location.href;
 
@@ -267,5 +398,4 @@ if (url.includes("sign_in")) {
   handleAppointmentPage();
 }
 
-// The calendar scanner runs on all matching pages (schedule/*)
 startCalendarScan();
