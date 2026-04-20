@@ -20,6 +20,9 @@ const CONFIG = {
     email: "",
     password: "",
   },
+  reschedule: {
+    confirmationAction: "confirm",
+  },
   timing: {
     loginDelay: { min: 2000, max: 3000 },
     pageDelay: { min: 1000, max: 2000 },
@@ -298,6 +301,32 @@ function submitReschedule() {
   return true;
 }
 
+// Handles the confirmation modal that appears after clicking "Reprogramar".
+function handleRescheduleConfirmation(action = "confirm", timeout = 10000) {
+  const start = Date.now();
+  const selector = action === "cancel" ? "[data-confirm-cancel]" : "a.button.alert";
+
+  return new Promise((resolve) => {
+    const interval = setInterval(() => {
+      const button = document.querySelector(selector);
+
+      if (button) {
+        clearInterval(interval);
+        button.click();
+        console.log(`[Bot] Reschedule confirmation action clicked: ${action}`);
+        resolve(true);
+        return;
+      }
+
+      if (Date.now() - start > timeout) {
+        clearInterval(interval);
+        console.warn(`[Bot] Reschedule confirmation modal button not found: ${action}`);
+        resolve(false);
+      }
+    }, CONFIG.timing.pollInterval);
+  });
+}
+
 // Watches for a success/confirmation state after submitting the reschedule.
 function waitForRescheduleConfirmation(timeout = 15000) {
   const start = Date.now();
@@ -371,6 +400,20 @@ function startCalendarScan() {
     setTimeout(async () => {
       const submitted = submitReschedule();
       if (!submitted) {
+        return;
+      }
+
+      const modalHandled = await handleRescheduleConfirmation(
+        CONFIG.reschedule.confirmationAction
+      );
+      if (!modalHandled) {
+        return;
+      }
+
+      if (CONFIG.reschedule.confirmationAction === "cancel") {
+        await sendTelegramMessage(
+          `Reschedule confirmation modal detected and cancelled successfully. Consular: ${consularAppointment.date} at ${consularAppointment.time}. ASC: ${ascAppointment.date} at ${ascAppointment.time}.`
+        );
         return;
       }
 
