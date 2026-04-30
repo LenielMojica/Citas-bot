@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(timeout 25 node src/index.js)",
+      "Bash(npm uninstall *)"
+    ]
+  }
+}

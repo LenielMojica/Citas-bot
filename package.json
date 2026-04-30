@@ -1,0 +1,27 @@
+{
+  "name": "citas-bot",
+  "version": "1.0.0",
+  "description": "A Tampermonkey userscript that monitors the US Visa portal (`ais.usvisa-info.com`) for available appointment slots and sends real-time alerts via Telegram.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LenielMojica/Citas-bot.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/LenielMojica/Citas-bot/issues"
+  },
+  "homepage": "https://github.com/LenielMojica/Citas-bot#readme",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "pg": "^8.20.0",
+    "undici": "^8.1.0"
+  }
+}
